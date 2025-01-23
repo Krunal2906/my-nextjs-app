@@ -24,18 +24,78 @@ jobs:
         node-version: '18'
         cache: 'npm'
     
-    - name: Install Dependencies
-      run: npm ci
+    - name: Install System Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          git \
+          curl \
+          build-essential \
+          libssl-dev \
+          ca-certificates
+    
+    - name: Install Project Dependencies
+      run: |
+        npm install \
+          next \
+          react \
+          react-dom \
+          @types/react
+    
+    - name: Install Development Dependencies
+      run: |
+        npm install -D \
+          @testing-library/react \
+          @testing-library/jest-dom \
+          @testing-library/user-event \
+          jest \
+          jest-environment-jsdom \
+          jest-dom \
+          eslint \
+          eslint-config-next \
+          eslint-plugin-react \
+          eslint-plugin-react-hooks \
+          prettier \
+          @types/jest \
+          typescript
+    
+    - name: Install Additional Utilities
+      run: |
+        npm install -D \
+          cross-env \
+          rimraf \
+          npm-run-all
     
     - name: Run Linter
-      run: npm run lint || true
+      run: |
+        npm run lint:check || true
+    
+    - name: Run Type Checking
+      run: npx tsc --noEmit
     
     - name: Run Tests
-      run: npm test
+      run: |
+        npm run test -- --coverage
+    
+    - name: Generate Test Coverage
+      uses: codecov/codecov-action@v3
+      with:
+        flags: unittests
     
     - name: Build Project
       run: npm run build
-  
+    
+    - name: Archive Build Artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: build-artifact
+        path: |
+          .next
+          public
+          package.json
+          next.config.js
+        retention-days: 5
+
   deploy:
     needs: build-and-test
     runs-on: ubuntu-latest
@@ -43,7 +103,28 @@ jobs:
     if: github.ref == 'refs/heads/main'
     
     steps:
+    - name: Download Build Artifact
+      uses: actions/download-artifact@v3
+      with:
+        name: build-artifact
+    
     - name: Deploy to Production
       run: |
         echo "Deploying to production server"
         # Add your deployment script here
+        # Could be using SSH, cloud services like Vercel, etc.
+
+  notify:
+    needs: [build-and-test, deploy]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+    - name: Send Slack Notification
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        fields: repo,message,commit,author,action,eventName,ref,workflow
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+      if: failure() # Only send if workflow fails
